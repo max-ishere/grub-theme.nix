@@ -1,3 +1,16 @@
 {
-    "editor.formatOnSave": false
+    "nix.enableLanguageServer": true,
+    "nix.serverPath": "nixd",
+    "nix.serverSettings": {
+        "nixd": {
+            "formatting": {
+                "command": [
+                    "nix",
+                    "fmt",
+                    "--",
+                    "-"
+                ]
+            }
+        }
+    },
 }
