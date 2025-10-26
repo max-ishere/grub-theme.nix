@@ -3,7 +3,8 @@
   xorriso,
   qemu,
   stdenv,
-  writeText,
+  writeShellScriptBin,
+  symlinkJoin,
   lib,
 }: {
   name ? "unnamed",
@@ -21,13 +22,12 @@
   resolution ? "1920x1080",
   qemu-system ? "x86_64",
   timeout ? 15,
-}:
-stdenv.mkDerivation {
-  name = "preview-${name}-grub-theme";
-  inherit src;
-  buildInputs = [grub2 xorriso qemu];
+}: let
+  iso = stdenv.mkDerivation {
+    name = "preview-${name}-grub-theme";
+    inherit src;
+    buildInputs = [grub2 xorriso qemu];
 
-  buildPhase = let
     grubCfg = builtins.concatStringsSep "\n" [
       (builtins.concatStringsSep "\n" (builtins.map (entry: ''
           menuentry "${entry.name}" ${lib.optionalString (entry ? class) "--class ${entry.class}"} {
@@ -51,41 +51,42 @@ stdenv.mkDerivation {
         set timeout_style=menu
       ''
     ];
-  in ''
-    mkdir $out
 
-    # Use a special dir for GRUB configs
-    BUILD_DIR=$out/build
+    buildPhase = let
+    in ''
+      mkdir "$out"
 
-    # Load the theme
-    mkdir $BUILD_DIR/boot/grub/themes/${name} -p
-    cp . $BUILD_DIR/boot/grub/themes/${name} -r
+      # Use a special dir for GRUB configs
+      BUILD_DIR="$out/build"
 
-    # Generate grub.cfg
+      # Load the theme
+      mkdir "$BUILD_DIR/boot/grub/themes/${name}" -p
+      cp . "$BUILD_DIR/boot/grub/themes/${name}" -r
 
-    # Autodetect fonts and load them
-    pushd $BUILD_DIR/boot/grub/themes/${name}
-      find -type f -name "*.pf2" \
+      # Generate grub.cfg
+
+      # Autodetect fonts and load them
+      find "$BUILD_DIR/boot/grub/themes/${name}" -type f -name "*.pf2" \
         -exec basename {} \; \
         | xargs -I {} echo 'loadfont $prefix/themes/${name}/{}' \
-        >> $BUILD_DIR/boot/grub/grub.cfg
-    popd
+        >> "$BUILD_DIR/boot/grub/grub.cfg"
 
-    # Append the rest of the config
-    echo '${grubCfg}' >> $BUILD_DIR/boot/grub/grub.cfg
+      # Append the rest of the config
+      echo "$grubCfg" >> "$BUILD_DIR/boot/grub/grub.cfg"
 
-    # Generate the ISO
-    ${grub2}/bin/grub-mkrescue -o $out/preview-${name}.iso $BUILD_DIR
+      # Generate the ISO
+      grub-mkrescue -o "$out/preview-${name}.iso" "$BUILD_DIR"
 
-    # Clear the build artifacts
-    rm -r $BUILD_DIR
-
-    # Create a convinience run script
-    mkdir $out/bin
-    cat <<EOF >$out/bin/preview-${name}-grub-theme
-      #!/usr/bin/env sh
-      ${qemu}/bin/qemu-system-${qemu-system} -cdrom $out/preview-${name}.iso
-    EOF
-    chmod +x $out/bin/preview-${name}-grub-theme
+      # Clear the build artifacts
+      rm -r "$BUILD_DIR"
+    '';
+  };
+  startVm = writeShellScriptBin "preview-${name}-grub-theme" ''
+    ${qemu}/bin/qemu-system-${qemu-system} -cdrom ${iso}/preview-${name}.iso
   '';
-}
+in
+  symlinkJoin {
+    name = "preview-${name}-grub-theme";
+    paths = [iso startVm];
+  }
+  // {meta = startVm.meta.mainProgram;}
